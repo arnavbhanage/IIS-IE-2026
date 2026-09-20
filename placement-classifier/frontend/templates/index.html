@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Student Placement Classifier</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="container">
+    <section class="intro">
+      <p class="eyebrow">Career readiness tool</p>
+      <h1>Student placement classifier</h1>
+      <p>Enter a student's academic and practical profile to receive a quick model-based estimate.</p>
+    </section>
+    <form id="prediction-form" class="form-card">
+      <label>CGPA <input name="cgpa" type="number" min="0" max="10" step="0.1" required></label>
+      <label>Internships <input name="internships" type="number" min="0" step="1" required></label>
+      <label>Projects <input name="projects" type="number" min="0" step="1" required></label>
+      <label>Communication score <input name="communication_score" type="number" min="0" max="100" required></label>
+      <label>Aptitude score <input name="aptitude_score" type="number" min="0" max="100" required></label>
+      <button type="submit">Predict placement</button>
+    </form>
+    <section id="result" class="result" aria-live="polite"></section>
+  </main>
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
