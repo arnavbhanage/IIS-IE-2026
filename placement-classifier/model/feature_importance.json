@@ -1,7 +1,9 @@
 {
-  "cgpa": 0.0,
-  "internships": 0.0,
-  "projects": 0.0,
-  "communication_score": 1.0,
-  "aptitude_score": 0.0
+  "academic_gaps": 0.30385174823053396,
+  "internships": 0.250380912858392,
+  "coding_questions_solved": 0.15121841615415452,
+  "project_complexity": 0.13308502838165476,
+  "cgpa": 0.1235127520867009,
+  "attendance_percent": 0.02674394028020611,
+  "leadership_roles": 0.01120720200835769
 }

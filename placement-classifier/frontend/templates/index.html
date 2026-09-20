@@ -1,28 +1,84 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Student Placement Classifier</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<meta charset="UTF-8">
+<title>Placement Category Predictor</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.3.0/chart.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.3.0/chart.umd.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.3.0/chart.min.css">
 </head>
 <body>
-  <main class="container">
-    <section class="intro">
-      <p class="eyebrow">Career readiness tool</p>
-      <h1>Student placement classifier</h1>
-      <p>Enter a student's academic and practical profile to receive a quick model-based estimate.</p>
-    </section>
-    <form id="prediction-form" class="form-card">
-      <label>CGPA <input name="cgpa" type="number" min="0" max="10" step="0.1" required></label>
-      <label>Internships <input name="internships" type="number" min="0" step="1" required></label>
-      <label>Projects <input name="projects" type="number" min="0" step="1" required></label>
-      <label>Communication score <input name="communication_score" type="number" min="0" max="100" required></label>
-      <label>Aptitude score <input name="aptitude_score" type="number" min="0" max="100" required></label>
-      <button type="submit">Predict placement</button>
+  <div class="container">
+    <h1>Student Placement Category Predictor</h1>
+    <p class="subtitle">Decision Tree classifier &mdash; predicts A / B / C with a transparent reasoning trail.</p>
+
+    <form id="predict-form">
+      <div class="field">
+        <label for="cgpa">CGPA (0-10)</label>
+        <input type="number" id="cgpa" name="cgpa" min="0" max="10" step="0.1" value="7.5" required>
+      </div>
+
+      <div class="field">
+        <label for="attendance_percent">Attendance %</label>
+        <input type="number" id="attendance_percent" name="attendance_percent" min="0" max="100" step="1" value="85" required>
+      </div>
+
+      <div class="field">
+        <label for="leadership_roles">Leadership roles (count)</label>
+        <input type="number" id="leadership_roles" name="leadership_roles" min="0" max="10" step="1" value="1" required>
+      </div>
+
+      <div class="field">
+        <label for="academic_gaps">Academic gaps (years/backlogs)</label>
+        <input type="number" id="academic_gaps" name="academic_gaps" min="0" max="5" step="1" value="0" required>
+      </div>
+
+      <div class="field">
+        <label for="project_complexity">Project complexity (1-5)</label>
+        <input type="number" id="project_complexity" name="project_complexity" min="1" max="5" step="1" value="3" required>
+      </div>
+
+      <div class="field">
+        <label for="internships">Internships (count)</label>
+        <input type="number" id="internships" name="internships" min="0" max="10" step="1" value="1" required>
+      </div>
+
+      <div class="field">
+        <label for="coding_questions_solved">LeetCode/HackerRank Qs solved</label>
+        <input type="number" id="coding_questions_solved" name="coding_questions_solved" min="0" max="5000" step="10" value="200" required>
+      </div>
+
+      <button type="submit">Predict Category</button>
     </form>
-    <section id="result" class="result" aria-live="polite"></section>
-  </main>
+
+    <div id="result" class="result hidden">
+      <h2>Predicted Category: <span id="pred-category"></span></h2>
+
+      <div class="probabilities">
+        <h3>Class probabilities</h3>
+        <div id="prob-bars"></div>
+      </div>
+
+      <div class="explanation">
+        <h3>Why? (Decision path)</h3>
+        <ol id="decision-path"></ol>
+      </div>
+
+      <div class="explanation">
+        <h3>Local feature contribution (this student)</h3>
+        <div id="local-contrib"></div>
+      </div>
+
+      <div class="explanation">
+        <h3>Global feature importance (whole model)</h3>
+        <div id="global-importance"></div>
+      </div>
+    </div>
+
+    <div id="error" class="error hidden"></div>
+  </div>
+
   <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>
