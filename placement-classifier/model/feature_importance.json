@@ -1,9 +1,9 @@
 {
-  "internships": 0.43170085634658006,
-  "academic_gaps": 0.2519578594958892,
-  "coding_questions_solved": 0.12672713539514852,
-  "leadership_roles": 0.12172271263871713,
-  "project_complexity": 0.03641475626640774,
-  "cgpa": 0.03147667985725724,
-  "attendance_percent": 0.0
+  "cgpa": 0.6491398665212013,
+  "attendance_percent": 0.0,
+  "leadership_roles": 0.09641198150753623,
+  "academic_gaps": 0.0,
+  "project_complexity": 0.09699962040467129,
+  "internships": 0.10404082767749133,
+  "coding_questions_solved": 0.053407703889099836
 }

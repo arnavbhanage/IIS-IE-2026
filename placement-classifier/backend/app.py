@@ -1,45 +1,29 @@
-"""
-app.py
-Flask backend: serves the frontend form and a /predict endpoint that
-returns a category (A/B/C) plus an explanation of the decision.
-"""
+from pathlib import Path
+import json
+from flask import Flask, request, jsonify, send_from_directory
+from werkzeug.exceptions import BadRequest, UnsupportedMediaType
+from predict import predict_with_explanation
 
-import os
-from flask import Flask, request, jsonify, render_template
+ROOT = Path(__file__).resolve().parents[1]
+DIST = ROOT / 'frontend/dist'
+app = Flask(__name__, static_folder=str(DIST / 'assets'), static_url_path='/assets')
 
-from predict import predict_with_explanation, FEATURE_COLUMNS
-
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
-
-app = Flask(
-    __name__,
-    template_folder=os.path.join(FRONTEND_DIR, "templates"),
-    static_folder=os.path.join(FRONTEND_DIR, "static"),
-)
-
-
-@app.route("/")
+@app.get('/')
 def index():
-    return render_template("index.html")
+    if not (DIST / 'index.html').exists():
+        return 'Build the UI first: cd placement-classifier/frontend && npm install && npm run build', 503
+    return send_from_directory(DIST, 'index.html')
 
-
-@app.route("/predict", methods=["POST"])
+@app.post('/predict')
 def predict():
-    payload = request.get_json(force=True)
-
-    # basic validation: all required fields present
-    missing = [col for col in FEATURE_COLUMNS if col not in payload]
-    if missing:
-        return jsonify({"error": f"Missing fields: {missing}"}), 400
-
     try:
-        result = predict_with_explanation(payload)
-    except (ValueError, TypeError) as e:
-        return jsonify({"error": f"Invalid input: {e}"}), 400
+        return jsonify(predict_with_explanation(request.get_json()))
+    except (ValueError, TypeError, BadRequest, UnsupportedMediaType) as exc:
+        return jsonify(error=str(exc)), 400
 
-    return jsonify(result)
+@app.get('/model-info')
+def model_info():
+    return jsonify(json.loads((ROOT / 'model/metrics.json').read_text()))
 
-
-if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+if __name__ == '__main__':
+    app.run(host='127.0.0.1', port=5000, debug=False)

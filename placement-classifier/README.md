@@ -1,92 +1,131 @@
-# Student Placement Category Predictor
+# Placement Lab
 
-A basic, explainable ML project that classifies students into placement
-readiness categories (A / B / C) using a Decision Tree, with a Flask
-backend and a plain HTML/CSS/JS frontend.
+A local college project: enter a student profile, predict Category 1 / 2 / 3,
+then read a plain-language explanation or inspect the actual decision tree path.
+Flask serves a built React + shadcn/ui interface. No login, landing page,
+external AI service or deployment is needed.
 
-## Why a Decision Tree?
+## Run the demo (PowerShell, from the repository root)
 
-Explainability was a core requirement, so instead of using a "black box"
-model + a separate explainability library (SHAP/LIME) or an external API,
-a single shallow Decision Tree was chosen because **the model's own
-structure is the explanation**. Every prediction can be traced as a
-literal sequence of if/else splits (see `backend/predict.py` ->
-`_explain_decision_path`), with zero external dependencies or API calls.
+The current workspace already has a Python virtual environment. For a fresh checkout:
 
-## Features used
-
-- CGPA (0-10)
-- Attendance %
-- Leadership roles (count)
-- Academic gaps (years/backlogs)
-- Project complexity (1-5)
-- Internships (count)
-- Coding questions solved (LeetCode/HackerRank)
-
-## Project structure
-
-```
-placement-classifier/
-├── data/
-│   └── student_placement_data.csv   # 540 synthetic student records
-├── model/
-│   ├── train_model.py                # cleans data, trains tree, saves model
-│   ├── model.pkl                     # trained model (generated)
-│   ├── feature_importance.json       # global feature importances (generated)
-│   └── tree_diagram.png              # visual of the tree, for slides (generated)
-├── backend/
-│   ├── app.py                        # Flask routes
-│   └── predict.py                    # prediction + explanation logic
-├── frontend/
-│   ├── templates/index.html
-│   └── static/{style.css, script.js}
-└── README.md
+```powershell
+python -m venv .venv
+.venv/Scripts/python.exe -m pip install -r placement-classifier/requirements.txt
 ```
 
-## Setup
+Build the frontend once:
 
-```bash
-pip install flask scikit-learn pandas joblib matplotlib
-
-# 1. Train the model (run once, or whenever data/CSV changes)
-cd model
-python3 train_model.py
-
-# 2. Run the Flask app
-cd ../backend
-python3 app.py
+```powershell
+cd placement-classifier/frontend
+npm ci
+npm run build
+cd ../..
 ```
 
-Then open http://127.0.0.1:5000 in your browser.
+Train and run:
 
-## How it works
+```powershell
+.venv/Scripts/python.exe placement-classifier/model/train_model.py
+.venv/Scripts/python.exe placement-classifier/backend/app.py
+```
 
-1. `train_model.py` loads the CSV, does basic cleaning (dedupe, drop nulls,
-   enforce logical ranges like CGPA 0-10), trains a `DecisionTreeClassifier`
-   (`max_depth=4` to stay interpretable and avoid overfitting), and saves
-   the model + feature importances + a tree diagram image.
-2. `app.py` serves the form and exposes `POST /predict`.
-3. `predict.py` loads the saved model and, for each prediction, also
-   returns:
-   - **Decision path** — the exact splits this student's input triggered
-   - **Local feature contribution** — which features were most decisive
-     for *this* student's path
-   - **Global feature importance** — which features matter most across
-     the whole model
-   - **Class probabilities** — the tree's confidence in A/B/C
-4. The frontend renders the category plus all of the above as readable
-   bars and a step-by-step trail.
+Open http://127.0.0.1:5000. After building, only Flask needs to run;
+there are no CDN dependencies at runtime. Node is only needed to build/edit the UI.
+For frontend development, run `npm run dev` in `placement-classifier/frontend`
+with Flask running in a second terminal. Vite proxies prediction requests to Flask.
 
-## Notes for the presentation
+## Does the project make sense?
 
-- The dataset is synthetic, generated from a weighted scoring formula with
-  added random noise (so classes aren't perfectly separable — more
-  realistic than a rule the tree could memorize exactly).
-- Test accuracy is ~57%, with most confusion in the B class, which is
-  expected since B sits between two threshold boundaries and is
-  inherently the hardest to separate — worth mentioning as an honest
-  limitation rather than hiding it.
-- Attendance and leadership roles turned out to have the lowest global
-  importance in this dataset — a good discussion point ("does attendance
-  really predict placement, or did our data-generation formula underweight
-  it deliberately?").
+Yes, as an explainable classification demonstration. A shallow decision tree
+is appropriate because the exact sequence of splits can be shown directly.
+However, this is a simulation of a college readiness rubric, not a validated
+prediction of employment or an official college category system. A rule-based
+calculator could implement the rubric exactly; the educational purpose of the
+ML version is to demonstrate learning, held-out evaluation, and explanations.
+To claim real predictive value, replace synthetic labels with actual historical
+placement outcomes, define categories with the college, and evaluate on unseen cohorts.
+
+## Explicit assumptions
+
+Category 1 means strong readiness, Category 2 developing readiness, and
+Category 3 foundation building. The old A/B/C labels have been replaced.
+
+Synthetic labels use this deliberately simple rubric:
+
+- At least one internship: 2 practical points.
+- At least 150 unique coding problems: 1 point.
+- Project complexity at least 3: 1 point.
+- At least one leadership role: 1 point.
+- Category 1: CGPA >= 8.5 and practical points >= 2.
+- Category 2: otherwise, CGPA >= 7 and practical points >= 1.
+- Category 3: all remaining profiles.
+
+One internship therefore supports Category 1 with 8.5+ CGPA; it does not
+place every profile in Category 1 regardless of academics. Multiple internships
+and leadership roles are allowed but earn no extra points beyond the first.
+Internship counts are sampled 65% zero, 33% one, 2% two. Leadership counts
+are 79% zero, 18% one, 2.5% two, 0.5% three. These are demo assumptions based
+on the user's college context, not measured statistics.
+
+Attendance and gap years remain available inputs but do not determine the
+synthetic labels. Academic gaps mean years, not backlogs. The original CSV
+is preserved as `data/student_placement_data.csv`; the reproducible generator
+writes `data/college_demo_data.csv` and trains on that new data.
+
+Project scale: 1 tutorial, 2 basic app, 3 independently built project,
+4 advanced project, 5 research-oriented project. This is a subjective input.
+
+## Coding benchmark research
+
+[LeetCode Top Interview 150](https://leetcode.com/studyplan/top-interview-150/)
+provides 150 classic questions spanning interview topics and describes itself
+as suited to 3+ months of preparation. It supports a practical study reference,
+not a placement cutoff. The 150 threshold above is our demo choice. Question
+count does not capture difficulty, independence, retention, or contest ability.
+Contest rating is a different measure and should not be inferred from solved count.
+
+## Explanations
+
+Both views use the same trained tree:
+
+- Simple explanation: category, checks written as sentences, and training
+  profile count in the final leaf. Unused inputs are explicitly listed.
+- Model details: exact path (thresholds displayed to four decimals), class
+  proportions in the leaf, local path importance, and global importance.
+
+Local importance now sums the actual weighted impurity reduction at visited
+splits, then normalizes it. The previous calculation used only the parent
+impurity and mislabeled it as a contribution. These bars are a path-importance
+heuristic, not SHAP values, causal effects, or positive/negative contributions.
+Class proportions are not calibrated placement chances.
+
+An explanation API is intentionally unnecessary for the working demo. The text
+is generated from the actual tree, is repeatable, and works offline. If added
+later, an LLM should only rephrase these supplied facts, never invent reasons
+or change the prediction, and should retain this explanation as a fallback.
+
+## Evaluation and checks
+
+Run `.venv/Scripts/python.exe -m unittest discover -s placement-classifier/tests -v`.
+Tests cover representative profiles, one-internship Category 1 behavior,
+additional experience, explanation structure, API metadata, and invalid JSON,
+missing fields, out-of-range values, fractional counts, booleans and nonfinite numbers.
+Run `npm run build` from the frontend directory to validate the UI build.
+
+Training uses seed 42, a stratified 80/20 split, depth at most 6 and at least
+8 training samples per leaf. Metrics are saved in `model/metrics.json` and
+served at `/model-info`; the tree image is saved in `model/tree_diagram.png`.
+The current held-out synthetic agreement is 99.75% (1,200 test rows).
+This high score reflects learning a deterministic synthetic rubric and says
+nothing about real-world placement accuracy. The model can differ from the
+rubric near boundaries. There is no hidden rule override after prediction.
+
+## Main files
+
+- `model/train_model.py`: synthetic data generation, training and evaluation.
+- `backend/predict.py`: validation, prediction and faithful explanations.
+- `backend/app.py`: Flask UI, `/predict`, `/model-info`.
+- `frontend/src/main.jsx`: direct input/result workflow.
+- `frontend/src/components/ui/`: components installed from the shadcn registry.
+- `frontend/templates/` and `frontend/static/`: retained original UI, no longer served.

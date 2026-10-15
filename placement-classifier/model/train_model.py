@@ -1,121 +1,61 @@
-"""
-train_model.py
-Trains a Decision Tree classifier to predict student placement category (A/B/C).
-Chosen for explainability: the tree's own splits ARE the explanation, no
-external XAI library or API needed.
-"""
-
-import pandas as pd
-import joblib
+from pathlib import Path
 import json
-import os
-
+import numpy as np
+import pandas as pd
 from sklearn.tree import DecisionTreeClassifier, plot_tree
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
+from sklearn.metrics import accuracy_score, confusion_matrix
+import joblib
 import matplotlib
-matplotlib.use("Agg")  # no display needed, just save the figure
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-# ---------- paths ----------
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_PATH = os.path.join(BASE_DIR, "data", "student_placement_data.csv")
-MODEL_DIR = os.path.join(BASE_DIR, "model")
-MODEL_PATH = os.path.join(MODEL_DIR, "model.pkl")
-FEATURES_PATH = os.path.join(MODEL_DIR, "feature_importance.json")
-TREE_IMG_PATH = os.path.join(MODEL_DIR, "tree_diagram.png")
+ROOT = Path(__file__).resolve().parents[1]
+FEATURE_COLUMNS = ['cgpa', 'attendance_percent', 'leadership_roles', 'academic_gaps', 'project_complexity', 'internships', 'coding_questions_solved']
 
-FEATURE_COLUMNS = [
-    "cgpa",
-    "attendance_percent",
-    "leadership_roles",
-    "academic_gaps",
-    "project_complexity",
-    "internships",
-    "coding_questions_solved",
-]
-TARGET_COLUMN = "placement_category"
-
-
-def load_and_clean_data(path):
-    df = pd.read_csv(path)
-
-    # --- data cleaning ---
-    # 1. drop exact duplicates
-    df = df.drop_duplicates()
-
-    # 2. drop rows with missing values (median-impute instead, if you want to
-    #    keep every row — left simple here since the synthetic data has none)
-    df = df.dropna()
-
-    # 3. enforce logical ranges (defensive — guards against bad data entry)
-    df = df[(df["cgpa"] >= 0) & (df["cgpa"] <= 10)]
-    df = df[(df["attendance_percent"] >= 0) & (df["attendance_percent"] <= 100)]
-    df = df[(df["project_complexity"] >= 1) & (df["project_complexity"] <= 5)]
-    df = df[df["leadership_roles"] >= 0]
-    df = df[df["academic_gaps"] >= 0]
-    df = df[df["internships"] >= 0]
-    df = df[df["coding_questions_solved"] >= 0]
-
-    return df.reset_index(drop=True)
-
+def demo_category(row):
+    # Explicit assumptions, not observed placement outcomes. Extra roles and
+    # internships do not earn additional points beyond the first.
+    practical = (2 * (row['internships'] >= 1) + (row['coding_questions_solved'] >= 150)
+                 + (row['project_complexity'] >= 3) + (row['leadership_roles'] >= 1))
+    if row['cgpa'] >= 8.5 and practical >= 2:
+        return '1'
+    if row['cgpa'] >= 7 and practical >= 1:
+        return '2'
+    return '3'
 
 def main():
-    df = load_and_clean_data(DATA_PATH)
-    print(f"Loaded {len(df)} clean rows")
-    print(df[TARGET_COLUMN].value_counts())
+    rng = np.random.default_rng(42)
+    n = 6000
+    df = pd.DataFrame({
+        'cgpa': rng.integers(40, 101, n) / 10,
+        'attendance_percent': rng.integers(50, 101, n),
+        'leadership_roles': rng.choice([0, 1, 2, 3], n, p=[.79, .18, .025, .005]),
+        'academic_gaps': rng.choice([0, 1, 2, 3], n, p=[.88, .09, .025, .005]),
+        'project_complexity': rng.choice([1, 2, 3, 4, 5], n, p=[.15, .25, .35, .2, .05]),
+        'internships': rng.choice([0, 1, 2], n, p=[.65, .33, .02]),
+        'coding_questions_solved': np.minimum(rng.gamma(1.5, 95, n).astype(int), 1000),
+    })
+    df['placement_category'] = df.apply(demo_category, axis=1)
+    df = df.drop_duplicates()
+    df.to_csv(ROOT / 'data/college_demo_data.csv', index=False)
+    train, test = train_test_split(df, test_size=.2, random_state=42, stratify=df.placement_category)
+    model = DecisionTreeClassifier(max_depth=6, min_samples_leaf=8, random_state=42)
+    model.fit(train[FEATURE_COLUMNS], train.placement_category)
+    predicted = model.predict(test[FEATURE_COLUMNS])
+    joblib.dump(model, ROOT / 'model/model.pkl')
+    importance = dict(zip(FEATURE_COLUMNS, model.feature_importances_.tolist()))
+    (ROOT / 'model/feature_importance.json').write_text(json.dumps(importance, indent=2))
+    metrics = {'accuracy':float(accuracy_score(test.placement_category, predicted)),
+               'train_rows':len(train), 'test_rows':len(test), 'classes':model.classes_.tolist(),
+               'confusion_matrix':confusion_matrix(test.placement_category, predicted, labels=model.classes_).tolist(),
+               'max_depth':model.get_depth(), 'data_source':'Synthetic college demo rubric; not real placement outcomes.'}
+    (ROOT / 'model/metrics.json').write_text(json.dumps(metrics, indent=2))
+    plt.figure(figsize=(28, 14))
+    plot_tree(model, feature_names=FEATURE_COLUMNS, class_names=model.classes_, filled=True, rounded=True, fontsize=6)
+    plt.savefig(ROOT / 'model/tree_diagram.png', dpi=120, bbox_inches='tight')
+    plt.close()
+    print(json.dumps(metrics, indent=2))
 
-    X = df[FEATURE_COLUMNS]
-    y = df[TARGET_COLUMN]
-
-    # stratified split so A/B/C proportions are preserved in train & test
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, stratify=y, random_state=42
-    )
-
-    # Shallow tree on purpose: keeps it explainable and avoids overfitting
-    # on a dataset this size.
-    clf = DecisionTreeClassifier(
-        max_depth=4,
-        criterion="gini",
-        random_state=42,
-    )
-    clf.fit(X_train, y_train)
-
-    # ---------- evaluate ----------
-    y_pred = clf.predict(X_test)
-    acc = accuracy_score(y_test, y_pred)
-    print(f"\nTest accuracy: {acc:.3f}\n")
-    print(classification_report(y_test, y_pred))
-    print("Confusion matrix (rows=actual, cols=predicted), classes:", clf.classes_)
-    print(confusion_matrix(y_test, y_pred, labels=clf.classes_))
-
-    # ---------- save model ----------
-    joblib.dump(clf, MODEL_PATH)
-    print(f"\nModel saved to {MODEL_PATH}")
-
-    # ---------- feature importance (global explainability) ----------
-    importances = dict(zip(FEATURE_COLUMNS, clf.feature_importances_.tolist()))
-    importances = dict(sorted(importances.items(), key=lambda x: x[1], reverse=True))
-    with open(FEATURES_PATH, "w") as f:
-        json.dump(importances, f, indent=2)
-    print(f"Feature importances saved to {FEATURES_PATH}")
-    for feat, imp in importances.items():
-        print(f"  {feat:28s} {imp:.3f}")
-
-    # ---------- save a visual of the tree for slides ----------
-    plt.figure(figsize=(20, 10))
-    plot_tree(
-        clf,
-        feature_names=FEATURE_COLUMNS,
-        class_names=clf.classes_,
-        filled=True,
-        rounded=True,
-        fontsize=9,
-    )
-    plt.savefig(TREE_IMG_PATH, dpi=150, bbox_inches="tight")
-    print(f"Tree diagram saved to {TREE_IMG_PATH}")
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

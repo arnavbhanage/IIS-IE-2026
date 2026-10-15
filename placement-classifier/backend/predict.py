@@ -1,124 +1,86 @@
-"""
-predict.py
-Loads the trained Decision Tree and produces both a prediction AND a
-human-readable explanation of *why*, by walking the tree's own decision path.
-This is the core "explainable AI" piece — no SHAP/LIME/API needed.
-"""
-
-import os
+"""Prediction and faithful explanations derived from the fitted tree."""
 import json
+import math
+from pathlib import Path
 import joblib
 import numpy as np
+import pandas as pd
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MODEL_PATH = os.path.join(BASE_DIR, "model", "model.pkl")
-FEATURES_PATH = os.path.join(BASE_DIR, "model", "feature_importance.json")
+ROOT = Path(__file__).resolve().parents[1]
+FEATURE_COLUMNS = ['cgpa','attendance_percent','leadership_roles','academic_gaps','project_complexity','internships','coding_questions_solved']
+FEATURE_LABELS = dict(zip(FEATURE_COLUMNS, ['CGPA','Attendance','Leadership roles','Academic gap years','Project complexity','Internships','Coding questions solved']))
+LIMITS = {'cgpa':(0,10), 'attendance_percent':(0,100), 'leadership_roles':(0,10), 'academic_gaps':(0,10), 'project_complexity':(1,5), 'internships':(0,10), 'coding_questions_solved':(0,5000)}
+_model = joblib.load(ROOT / 'model/model.pkl')
+_global_importances = dict(zip(FEATURE_COLUMNS, _model.feature_importances_.tolist()))
 
-FEATURE_COLUMNS = [
-    "cgpa",
-    "attendance_percent",
-    "leadership_roles",
-    "academic_gaps",
-    "project_complexity",
-    "internships",
-    "coding_questions_solved",
-]
+def validate(data):
+    if not isinstance(data, dict):
+        raise ValueError('Send a JSON object containing the student inputs.')
+    values = {}
+    for key in FEATURE_COLUMNS:
+        if key not in data:
+            raise ValueError(f'{FEATURE_LABELS[key]} is required.')
+        if isinstance(data[key], bool) or not isinstance(data[key], (int,float)):
+            raise ValueError(f'{FEATURE_LABELS[key]} must be a number.')
+        value = float(data[key])
+        low, high = LIMITS[key]
+        if not math.isfinite(value) or not low <= value <= high:
+            raise ValueError(f'{FEATURE_LABELS[key]} must be between {low} and {high}.')
+        if key not in ['cgpa','attendance_percent'] and not value.is_integer():
+            raise ValueError(f'{FEATURE_LABELS[key]} must be a whole number.')
+        values[key] = value
+    return values
 
-FEATURE_LABELS = {
-    "cgpa": "CGPA",
-    "attendance_percent": "Attendance %",
-    "leadership_roles": "Leadership roles",
-    "academic_gaps": "Academic gaps",
-    "project_complexity": "Project complexity",
-    "internships": "Internships",
-    "coding_questions_solved": "Coding questions solved",
-}
-
-_model = joblib.load(MODEL_PATH)
-with open(FEATURES_PATH) as f:
-    _global_importances = json.load(f)
-
-
-def _build_input_vector(data: dict):
-    """Turns the incoming JSON dict into an ordered feature vector."""
-    return np.array([[float(data[col]) for col in FEATURE_COLUMNS]])
-
-
-def _explain_decision_path(x):
-    """
-    Walks the exact sequence of splits the tree used for this one input,
-    producing a plain-English trail like:
-    'CGPA (8.5) > 7.75 -> Internships (2) > 1 -> predicted A'
-    """
+def predict_with_explanation(data):
+    values = validate(data)
+    x = pd.DataFrame([values], columns=FEATURE_COLUMNS)
+    prediction = str(_model.predict(x)[0])
+    probabilities = dict(zip(_model.classes_.tolist(), _model.predict_proba(x)[0].tolist()))
     tree = _model.tree_
-    node_indicator = _model.decision_path(x)
-    leaf_id = _model.apply(x)[0]
-    node_index = node_indicator.indices[
-        node_indicator.indptr[0] : node_indicator.indptr[1]
-    ]
-
-    steps = []
-    for node_id in node_index:
-        if leaf_id == node_id:
-            continue  # leaf node has no split, skip
-        feature_idx = tree.feature[node_id]
-        threshold = tree.threshold[node_id]
-        feature_name = FEATURE_COLUMNS[feature_idx]
-        value = x[0, feature_idx]
-
-        if value <= threshold:
-            direction = f"{FEATURE_LABELS[feature_name]} ({value:g}) <= {threshold:.2f}"
+    nodes = _model.decision_path(x).indices
+    path, sentences = [], []
+    weights = {key:0.0 for key in FEATURE_COLUMNS}
+    for node in nodes:
+        idx = tree.feature[node]
+        if idx < 0:
+            continue
+        key = FEATURE_COLUMNS[idx]
+        threshold = float(tree.threshold[node])
+        value = values[key]
+        # sklearn evaluates float32 features; use the same comparison.
+        left = float(np.float32(value)) <= threshold
+        path.append(f'{FEATURE_LABELS[key]} ({value:g}) {"<=" if left else ">"} {threshold:.4f}')
+        if key not in ['cgpa','attendance_percent']:
+            words = f'at most {math.floor(threshold)}' if left else f'at least {math.floor(threshold)+1}'
         else:
-            direction = f"{FEATURE_LABELS[feature_name]} ({value:g}) > {threshold:.2f}"
-        steps.append(direction)
-
-    return steps
-
-
-def _local_feature_contributions(x):
-    """
-    Simple local explanation: for each feature actually used along this
-    student's decision path, report how many times / how strongly it
-    contributed (weighted by the split's impurity decrease at that node).
-    This gives a per-student bar-chart-friendly breakdown.
-    """
-    tree = _model.tree_
-    node_indicator = _model.decision_path(x)
-    node_index = node_indicator.indices[
-        node_indicator.indptr[0] : node_indicator.indptr[1]
-    ]
-
-    contributions = {col: 0.0 for col in FEATURE_COLUMNS}
-    for node_id in node_index:
-        feature_idx = tree.feature[node_id]
-        if feature_idx < 0:
-            continue  # leaf
-        feature_name = FEATURE_COLUMNS[feature_idx]
-        # impurity decrease at this node = weighted_n_node_samples * impurity
-        # minus children's weighted impurity. Use a simple proxy: impurity at
-        # this node scaled by samples, which reflects how "decisive" the
-        # split was overall (global, not sample-specific, but a reasonable
-        # simple proxy for a basic project).
-        contributions[feature_name] += tree.impurity[node_id] * tree.n_node_samples[node_id]
-
-    total = sum(contributions.values()) or 1.0
-    normalized = {k: round(v / total, 3) for k, v in contributions.items() if v > 0}
-    return dict(sorted(normalized.items(), key=lambda kv: kv[1], reverse=True))
-
-
-def predict_with_explanation(data: dict):
-    x = _build_input_vector(data)
-
-    prediction = _model.predict(x)[0]
-    probabilities = dict(zip(_model.classes_, _model.predict_proba(x)[0].round(3).tolist()))
-
-    decision_path = _explain_decision_path(x)
-    local_contributions = _local_feature_contributions(x)
-
-    return {
-        "prediction": prediction,
-        "probabilities": probabilities,
-        "decision_path": decision_path,
-        "local_feature_contributions": local_contributions,
-        "global_feature_importance": _global_importances,
-    }
+            words = f'{"at or below" if left else "above"} {threshold:.2f}'
+        if key == 'internships':
+            sentence = (f'You have completed {value:g} internship(s). The tree follows the group with at least one internship.'
+                        if not left and threshold < 1 else
+                        f'You have completed {value:g} internship(s). The tree follows the group with {words} internship(s).')
+        elif key == 'cgpa':
+            sentence = f'Your CGPA of {value:g} puts you in the group {words} CGPA in this tree.'
+        elif key == 'coding_questions_solved':
+            sentence = f'You have solved {value:g} coding problems, so the tree follows the group with {words} problems solved.'
+        else:
+            sentence = f'Your value for {FEATURE_LABELS[key].lower()} is {value:g}, so the tree follows the group with {words}.'
+        sentences.append(sentence)
+        l, r = tree.children_left[node], tree.children_right[node]
+        gain = (tree.weighted_n_node_samples[node]*tree.impurity[node]
+                - tree.weighted_n_node_samples[l]*tree.impurity[l]
+                - tree.weighted_n_node_samples[r]*tree.impurity[r])
+        weights[key] += max(0.0, float(gain))
+    total = sum(weights.values()) or 1
+    local = {k:v/total for k,v in sorted(weights.items(), key=lambda item:-item[1]) if v>0}
+    unused = [FEATURE_LABELS[k] for k in FEATURE_COLUMNS if k not in local]
+    leaf = int(_model.apply(x)[0])
+    titles = {'1':'strong readiness', '2':'developing readiness', '3':'foundation building'}
+    summary = f'The model places this profile in Category {prediction} ({titles[prediction]}). The deciding checks were ' + ', '.join(FEATURE_LABELS[k] for k in local) + '.'
+    return {'prediction':prediction, 'probabilities':probabilities, 'decision_path':path,
+            'local_feature_contributions':local, 'global_feature_importance':_global_importances,
+            'explanation':{'summary':summary, 'steps':sentences,
+                           'unused_features':unused, 'source':'Generated directly from the decision tree'},
+            'leaf_samples':int(tree.n_node_samples[leaf]),
+            'probability_note':'These are category proportions in the training leaf, not your chance of getting placed.',
+            'local_importance_note':'Normalized impurity reduction at splits on this path; not a causal effect or a signed contribution.',
+            'limitation':'This model learns a synthetic college rubric. It has not been validated on real student placements.'}

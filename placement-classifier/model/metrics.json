@@ -1,0 +1,29 @@
+{
+  "accuracy": 0.9975,
+  "train_rows": 4798,
+  "test_rows": 1200,
+  "classes": [
+    "1",
+    "2",
+    "3"
+  ],
+  "confusion_matrix": [
+    [
+      180,
+      1,
+      0
+    ],
+    [
+      0,
+      352,
+      2
+    ],
+    [
+      0,
+      0,
+      665
+    ]
+  ],
+  "max_depth": 6,
+  "data_source": "Synthetic college demo rubric; not real placement outcomes."
+}
